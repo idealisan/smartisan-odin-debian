@@ -50,7 +50,7 @@ DTB=$(ls "$STAGE"/boot/dtbs/qcom/*.dtb 2>/dev/null | head -1)
 
 # 内核版本不能写死：scripts/setlocalversion 在"工作树不干净"时会追加一个 +，
 # 而 CI 里补丁是打在工作树上的（git 里永远是脏的），实际目录名是
-# 6.19.0-postmarketos-qcom-msm8953+ —— 少那个 + 就找不到模块。
+# 7.1.3-smartisan-odin+ —— 少那个 + 就找不到模块。
 KVER=$(ls "$STAGE/usr/lib/modules" 2>/dev/null | head -1)
 [ -n "$KVER" ] || fail "no kernel modules under /usr/lib/modules"
 say "staging OK: $STAGE ($(du -sh "$STAGE" | cut -f1)), kernel $KVER"
