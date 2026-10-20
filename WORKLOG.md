@@ -4815,3 +4815,32 @@ du -ax / | sort -rh | head
 - 解码会掉帧：默认缓冲下 60 帧只出 46/59 帧，日志明示
   `All capture buffers returned to userspace. Increase num_capture_buffers`；
   调到 32 反而卡死（4 分钟不返回）。
+
+## 2026-10-20 触摸"突然失效"真因：buffyboard 输入扫描与触摸 rebind 的开机竞态
+
+详见 `reports/050-触屏失效真因-buffyboard输入扫描与触摸rebind竞态.md`。要点：
+
+- **现象**：用户报"之前触摸屏是好的，现在不能触摸了"。SSH 进真机只读排查。
+- **内核层是好的**：`/dev/input/event5` 直读 8 秒 534 个完美事件（坐标、
+  BTN_TOUCH、SYN 齐全），中断只在触摸时增长、CRC 错误为 0。
+- **真因**：buffyboard 用 libinput **path 模式**（strings 里没有任何
+  `libinput_udev_*` 符号），启动扫一次 `/dev/input` 之后**永不重扫、不支持
+  热插拔**；fd/epoll 里都没有 event5 ⇒ 键盘从不消费触摸（端到端探测：
+  触摸 38 事件、uinput 注入 0）。
+- **竞态**：FT8716 是 TDDI，首次 probe 必失败，event5 要等
+  `odin-touchscreen.service` rebind 后才出现（本次开机 20:56:22.3，节点
+  mtime 实测），而 buffyboard 20:56:20 就已扫描完毕 —— 晚 1.8 秒，整场错过。
+  10-08 开机同样是 ~2 秒差 ⇒ 输成的开机就整场没触摸，这就是"之前好、
+  现在坏"的来源，纯随机启动顺序，不是硬件退化。
+- **修法（真机已验证）**：`buffyboard.service` 加 `After=odin-touchscreen.service`
+  （drop-in `/etc/systemd/system/buffyboard.service.d/odin-after-touchscreen.conf`；
+  不用 Requires=，odin-touchscreen 失败不挡 buffyboard）。重启 buffyboard 后
+  fd 出现 event5，端到端注入出 `KEY_J / KEY_H`，用户确认成功。
+- **回写构建树**：新增
+  `dist/build/rootfs/etc/systemd/system/buffyboard.service.d/odin-after-touchscreen.conf`。
+  覆盖树整树拷贝自动随 staging 部署，无 enable 符号链接需要；只影响 kb 变体
+  （buffyboard 只在 kb 里装）。下次刷机/重建 staging 后开机即生效。
+
+教训：这类"启动扫描一次、不热插拔"的消费者（buffyboard 于 libinput path 模式）
+跟"设备生成晚会完成"的生产者（TDDI 触摸）之间，**必须显式 systemd 排序**，
+靠运气迟早输 —— 本机已经输过至少两场（10-08、10-19 两次开机）。
